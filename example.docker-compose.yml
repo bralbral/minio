@@ -1,0 +1,55 @@
+version: '3.7'
+
+services:
+  minio:
+    container_name: minio
+    image: minio/minio:RELEASE.2022-05-04T07-45-27Z
+    command: server /data --address "0.0.0.0:9000" --console-address "0.0.0.0:9001"
+    volumes:
+      - ./data:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASS:-minio123}
+      MINIO_REGION_NAME: ${MINIO_REGION_NAME}
+      MINIO_BROWSER_REDIRECT_URL: https://${FQDN}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  nginx:
+    container_name: nginx
+    image: bral1488/nginx:latest
+    build: ./nginx
+    ports:
+      # certbot
+      - 80:80
+      # minio-console
+      - 443:9001
+      # minio-api
+      - 9000:9000
+    environment:
+      HOST: ${FQDN}
+    command: '/bin/sh -c ''while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'''
+    volumes:
+      - ./nginx/config.conf:/etc/nginx/conf.d/config.conf
+      - ./nginx/var/log/nginx:/var/log/nginx
+      - ./nginx/certbot/www:/var/www/certbot
+      - ./nginx/certbot/conf:/etc/letsencrypt
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    restart: always
+
+
+  certbot:
+    image: certbot/certbot
+    container_name: cert_bot
+    environment:
+      HOST: ${FQDN}
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    volumes:
+      - ./nginx/certbot/conf:/etc/letsencrypt
+      - ./nginx/certbot/www:/var/www/certbot
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
